@@ -2,18 +2,24 @@ package org.example.gui;
 
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
+import javafx.concurrent.Task;
 import javafx.geometry.Insets;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.control.cell.PropertyValueFactory;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
+import javafx.stage.Modality;
 import javafx.stage.Stage;
+import org.example.async.LoadTask;
 import org.example.io.CsvLoadResult;
 import org.example.io.CsvLoader;
 import org.example.model.Editable;
 import org.example.model.Product;
+import org.example.structure.BTreeStore;
+import org.example.structure.TreeStats;
 
 import java.io.File;
 import java.util.List;
@@ -21,15 +27,22 @@ import java.util.Optional;
 
 /**
  * Главное окно приложения «Каталог магазина».
+ * Основное хранилище — BTreeStore (B-дерево порядка 4).
+ * Фоновая загрузка через Task с прогрессом.
  */
 public class MainView {
 
     private final Stage stage;
+
+    /** Основное хранилище — B-дерево. */
+    private BTreeStore<Integer, Product> tree = new BTreeStore<>();
+
+    /** Список для отображения в таблице (зеркало дерева). */
     private final ObservableList<Product> products = FXCollections.observableArrayList();
+
     private final TableView<Product> table = new TableView<>();
     private final CsvLoader csvLoader = new CsvLoader();
 
-    // Кнопки, состояние которых зависит от выделения
     private Button editBtn;
     private Button deleteBtn;
 
@@ -71,18 +84,19 @@ public class MainView {
         table.getColumns().addAll(typeCol, articleCol, nameCol, categoryCol, priceCol, stockCol);
         table.setPlaceholder(new Label("Нет данных. Нажмите «Загрузить пример»."));
 
-        // Слушатель выделения: при выборе строки обновляем состояние кнопок
         table.getSelectionModel().selectedItemProperty().addListener(
                 (obs, oldVal, newVal) -> updateButtonsState()
         );
 
-        //Кнопки
         Button loadExampleBtn = new Button("Загрузить пример");
         Button loadBtn = new Button("Загрузить из CSV");
         Button saveBtn = new Button("Сохранить в CSV");
         Button addBtn = new Button("Добавить");
         editBtn = new Button("Изменить");
         deleteBtn = new Button("Удалить");
+        Button statsBtn = new Button("Статистика");
+        Button showTreeBtn = new Button("Показать дерево");
+        Button generateBtn = new Button("Сгенерировать N");
 
         loadExampleBtn.setOnAction(e -> loadFromResource("/products.csv"));
         loadBtn.setOnAction(e -> loadFromFileChooser());
@@ -90,20 +104,23 @@ public class MainView {
         addBtn.setOnAction(e -> onAdd());
         editBtn.setOnAction(e -> onEdit());
         deleteBtn.setOnAction(e -> onDelete());
+        statsBtn.setOnAction(e -> onShowStats());
+        showTreeBtn.setOnAction(e -> onShowTree());
+        generateBtn.setOnAction(e -> onGenerate());
 
         HBox buttons = new HBox(10,
-                loadExampleBtn, loadBtn, saveBtn, addBtn, editBtn, deleteBtn);
+                loadExampleBtn, loadBtn, saveBtn, addBtn, editBtn, deleteBtn,
+                statsBtn, showTreeBtn, generateBtn);
         buttons.setPadding(new Insets(10));
 
         BorderPane root = new BorderPane();
         root.setCenter(table);
         root.setBottom(buttons);
 
-        Scene scene = new Scene(root, 900, 500);
-        stage.setTitle("Каталог магазина");
+        Scene scene = new Scene(root, 1200, 550);
+        stage.setTitle("Каталог магазина (B-дерево)");
         stage.setScene(scene);
 
-        // Изначально кнопки редактирования/удаления выключены
         updateButtonsState();
     }
 
@@ -111,11 +128,10 @@ public class MainView {
         stage.show();
     }
 
-    //ОБНОВЛЕНИЕ СОСТОЯНИЯ КНОПОК
-    /**
-     * Обновляет доступность кнопок в зависимости от выделения.
-     * Кнопка «Изменить» активна только если выделенный объект реализует Editable.
-     */
+    private void refreshTable() {
+        products.setAll(tree.getAll());
+    }
+
     private void updateButtonsState() {
         Product selected = table.getSelectionModel().getSelectedItem();
         boolean isEditable = selected instanceof Editable;
@@ -123,47 +139,51 @@ public class MainView {
         deleteBtn.setDisable(selected == null);
     }
 
+    // ============================================================
+    //                        ДОБАВЛЕНИЕ
+    // ============================================================
 
-    //ДОБАВЛЕНИЕ
     private void onAdd() {
         ProductDialog dialog = new ProductDialog(stage, null);
         Optional<Product> result = dialog.showAndWait();
         if (result.isPresent()) {
-            products.add(result.get());
-            showInfo("Товар добавлен: " + result.get().getName());
+            tree.add(result.get());
+            refreshTable();
+            showInfo("Товар добавлен: " + result.get().getName() +
+                    "\nВсего в дереве: " + tree.size());
         }
     }
 
-    //РЕДАКТИРОВАНИЕ
+    // ============================================================
+    //                       РЕДАКТИРОВАНИЕ
+    // ============================================================
+
     private void onEdit() {
         Product selected = table.getSelectionModel().getSelectedItem();
-        if (selected == null) {
-            return;
-        }
+        if (selected == null) return;
         if (!(selected instanceof Editable)) {
             showError("Нельзя редактировать",
                     "Товар «" + selected.getName() + "» доступен только для чтения.");
             return;
         }
 
-        // Открываем диалог с текущими данными
         ProductDialog dialog = new ProductDialog(stage, selected);
         Optional<Product> result = dialog.showAndWait();
         if (result.isPresent()) {
-            int index = products.indexOf(selected);
-            products.set(index, result.get());
-            table.getSelectionModel().select(index);
+            tree.removeByKey(selected.getArticle());
+            tree.add(result.get());
+            refreshTable();
             showInfo("Товар изменён: " + result.get().getName());
         }
     }
 
-    //УДАЛЕНИЕ
+    // ============================================================
+    //                         УДАЛЕНИЕ
+    // ============================================================
 
     private void onDelete() {
         Product selected = table.getSelectionModel().getSelectedItem();
-        if (selected == null) {
-            return;
-        }
+        if (selected == null) return;
 
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
         confirm.initOwner(stage);
@@ -174,19 +194,100 @@ public class MainView {
 
         Optional<ButtonType> answer = confirm.showAndWait();
         if (answer.isPresent() && answer.get() == ButtonType.OK) {
-            products.remove(selected);
-            showInfo("Товар удалён: " + selected.getName());
+            boolean removed = tree.removeByKey(selected.getArticle());
+            if (removed) {
+                refreshTable();
+                showInfo("Товар удалён: " + selected.getName() +
+                        "\nВсего в дереве: " + tree.size());
+            } else {
+                showError("Ошибка", "Не удалось удалить товар.");
+            }
         }
     }
 
-    //ЗАГРУЗКА ИЗ CSV
-    private void loadFromResource(String resourcePath) {
+    // ============================================================
+    //                       СТАТИСТИКА
+    // ============================================================
+
+    private void onShowStats() {
+        TreeStats stats = tree.getStats();
+        String message = String.format(
+                "Статистика B-дерева:%n" +
+                        "  Всего узлов: %d%n" +
+                        "  Листьев: %d%n" +
+                        "  Внутренних: %d%n" +
+                        "  Высота: %d%n" +
+                        "  Среднее ключей в узле: %.2f%n" +
+                        "  Полных узлов: %d%n" +
+                        "  Неполных узлов: %d%n" +
+                        "  Всего элементов: %d",
+                stats.getTotalNodes(),
+                stats.getLeafNodes(),
+                stats.getInternalNodes(),
+                stats.getHeight(),
+                stats.getAvgKeysPerNode(),
+                stats.getFullNodes(),
+                stats.getNotFullNodes(),
+                stats.getTotalKeys()
+        );
+        showInfo(message);
+    }
+
+    // ============================================================
+    //                       ВИЗУАЛИЗАЦИЯ
+    // ============================================================
+
+    private void onShowTree() {
+        TreeViewWindow window = new TreeViewWindow(stage, tree);
+        window.show();
+    }
+
+    // ============================================================
+    //                       ГЕНЕРАЦИЯ ДАННЫХ
+    // ============================================================
+
+    private void onGenerate() {
+        TextInputDialog dialog = new TextInputDialog("100");
+        dialog.initOwner(stage);
+        dialog.setTitle("Генерация данных");
+        dialog.setHeaderText("Сколько товаров сгенерировать?");
+        dialog.setContentText("Число:");
+
+        Optional<String> input = dialog.showAndWait();
+        if (!input.isPresent()) return;
+
         try {
-            CsvLoadResult result = csvLoader.loadFromResource(resourcePath);
-            applyLoadResult(result, "Пример загружен");
-        } catch (Exception ex) {
-            showError("Ошибка загрузки ресурса", ex.getMessage());
+            int count = Integer.parseInt(input.get().trim());
+            if (count <= 0) {
+                showError("Ошибка", "Число должно быть положительным.");
+                return;
+            }
+            if (count > 100000) {
+                showError("Ошибка", "Максимум 100000 товаров за раз.");
+                return;
+            }
+
+            long start = System.currentTimeMillis();
+            tree.generateAndAdd(count);
+            long elapsed = System.currentTimeMillis() - start;
+
+            refreshTable();
+
+            showInfo("Сгенерировано: " + count + " товаров" +
+                    "\nВремя: " + elapsed + " мс" +
+                    "\nВсего в дереве: " + tree.size());
+
+        } catch (NumberFormatException ex) {
+            showError("Ошибка", "Неверный формат числа: " + input.get());
         }
+    }
+
+    // ============================================================
+    //                     ЗАГРУЗКА ИЗ CSV (с Task)
+    // ============================================================
+
+    private void loadFromResource(String resourcePath) {
+        loadResourceWithProgress(resourcePath);
     }
 
     private void loadFromFileChooser() {
@@ -196,18 +297,100 @@ public class MainView {
                 new FileChooser.ExtensionFilter("CSV-файлы", "*.csv"));
         File file = fc.showOpenDialog(stage);
         if (file == null) return;
-        try {
-            CsvLoadResult result = csvLoader.load(file.toPath());
-            applyLoadResult(result, "Файл загружен: " + file.getName());
-        } catch (Exception ex) {
-            showError("Ошибка загрузки файла", ex.getMessage());
-        }
+        loadFileWithProgress(file);
+    }
+
+    /** Загрузка из ресурса в фоне. */
+    private void loadResourceWithProgress(String resourcePath) {
+        Task<CsvLoadResult> task = new Task<CsvLoadResult>() {
+            @Override
+            protected CsvLoadResult call() throws Exception {
+                updateMessage("Загрузка встроенного примера...");
+                updateProgress(0, 1);
+                CsvLoadResult result = csvLoader.loadFromResource(resourcePath);
+                updateProgress(1, 1);
+                updateMessage("Загружено: " + result.getProducts().size() + " товаров");
+                return result;
+            }
+        };
+
+        showTaskDialog(task, "Загрузка примера", "Пример загружен");
+    }
+
+    /** Загрузка из файла в фоне через LoadTask. */
+    private void loadFileWithProgress(File file) {
+        LoadTask task = new LoadTask(file.toPath());
+        showTaskDialog(task, "Загрузка файла: " + file.getName(),
+                "Файл загружен: " + file.getName());
+    }
+
+    /**
+     * Показывает диалог с прогресс-баром и запускает Task в фоне.
+     */
+    private void showTaskDialog(Task<CsvLoadResult> task, String title, String successMessage) {
+        // Прогресс-бар
+        ProgressBar progressBar = new ProgressBar();
+        progressBar.progressProperty().bind(task.progressProperty());
+        progressBar.setPrefWidth(350);
+
+        // Сообщение
+        Label statusLabel = new Label();
+        statusLabel.textProperty().bind(task.messageProperty());
+
+        // Кнопка отмены
+        Button cancelBtn = new Button("Отмена");
+        cancelBtn.setOnAction(e -> task.cancel());
+
+        VBox content = new VBox(10, statusLabel, progressBar, cancelBtn);
+        content.setPadding(new Insets(15));
+
+        // Диалог
+        Stage dialog = new Stage();
+        dialog.initOwner(stage);
+        dialog.initModality(Modality.APPLICATION_MODAL);
+        dialog.setTitle(title);
+        dialog.setScene(new Scene(content, 420, 150));
+        dialog.setOnCloseRequest(e -> task.cancel());   // закрытие = отмена
+
+        // Обработка завершения
+        task.setOnSucceeded(e -> {
+            dialog.close();
+            CsvLoadResult result = task.getValue();
+            if (result != null) {
+                applyLoadResult(result, successMessage);
+            }
+        });
+
+        task.setOnFailed(e -> {
+            dialog.close();
+            Throwable ex = task.getException();
+            showError("Ошибка загрузки",
+                    ex != null ? ex.getMessage() : "Неизвестная ошибка");
+        });
+
+        task.setOnCancelled(e -> {
+            dialog.close();
+            showInfo("Загрузка отменена");
+        });
+
+        // Запуск в фоне
+        Thread thread = new Thread(task);
+        thread.setDaemon(true);
+        thread.start();
+
+        dialog.show();
     }
 
     private void applyLoadResult(CsvLoadResult result, String successMessage) {
-        products.setAll(result.getProducts());
+        tree = new BTreeStore<>();
+        for (Product p : result.getProducts()) {
+            tree.add(p);
+        }
+        refreshTable();
+
         if (result.isSuccess()) {
-            showInfo(successMessage + "\nЗагружено: " + result.getProducts().size() + " товаров");
+            showInfo(successMessage + "\nЗагружено: " + result.getProducts().size() +
+                    " товаров\nВсего в дереве: " + tree.size());
         } else {
             showError(
                     "Загружено с ошибками",
@@ -219,8 +402,10 @@ public class MainView {
         }
     }
 
+    // ============================================================
+    //                     СОХРАНЕНИЕ В CSV
+    // ============================================================
 
-    //СОХРАНЕНИЕ В CSV
     private void saveToFileChooser() {
         FileChooser fc = new FileChooser();
         fc.setTitle("Сохранить в CSV");
@@ -232,7 +417,7 @@ public class MainView {
         if (file == null) return;
 
         try {
-            List<Product> toSave = products;
+            List<Product> toSave = tree.getAll();
             csvLoader.save(toSave, file.toPath());
             showInfo("Файл сохранён: " + file.getName() +
                     "\nСохранено: " + toSave.size() + " товаров");
@@ -241,8 +426,10 @@ public class MainView {
         }
     }
 
+    // ============================================================
+    //                        ДИАЛОГИ
+    // ============================================================
 
-    //ДИАЛОГИ
     private void showInfo(String message) {
         Alert alert = new Alert(Alert.AlertType.INFORMATION);
         alert.setTitle("Информация");

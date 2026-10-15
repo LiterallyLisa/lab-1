@@ -94,7 +94,10 @@ public class BTreeStore<K extends Comparable<K>, T> implements EntityStore<K, T>
     public int size() {
         return size;
     }
-
+    /** Возвращает корень дерева — для визуализации. */
+    public BTreeNode<K, T> getRoot() {
+        return root;
+    }
     // ============================================================
     //                     ПОИСК
     // ============================================================
@@ -420,6 +423,28 @@ public class BTreeStore<K extends Comparable<K>, T> implements EntityStore<K, T>
         Product[] generated = generator.generate(count);
         for (Product p : generated) {
             add((T) p);
+        }
+    }
+    /**
+     * Получить все значения из дерева в порядке возрастания ключей.
+     * Используется для отображения в таблице GUI.
+     */
+    public List<T> getAll() {
+        List<T> result = new ArrayList<>();
+        collectAll(root, result);
+        return result;
+    }
+
+    private void collectAll(BTreeNode<K, T> node, List<T> result) {
+        if (node == null) return;
+        for (int i = 0; i < node.getKeyCount(); i++) {
+            if (!node.isLeaf()) {
+                collectAll(node.getChild(i), result);
+            }
+            result.add(node.getValue(i));
+        }
+        if (!node.isLeaf()) {
+            collectAll(node.getChild(node.getKeyCount()), result);
         }
     }
     // ============================================================
