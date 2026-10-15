@@ -410,6 +410,18 @@ public class BTreeStore<K extends Comparable<K>, T> implements EntityStore<K, T>
         }
     }
 
+    /**
+     * Генерирует N случайных товаров и добавляет их в дерево.
+     * Вспомогательный метод для тестирования и демонстрации.
+     */
+    @SuppressWarnings("unchecked")
+    public void generateAndAdd(int count) {
+        DataGenerator generator = new DataGenerator();
+        Product[] generated = generator.generate(count);
+        for (Product p : generated) {
+            add((T) p);
+        }
+    }
     // ============================================================
     //                     ВСПОМОГАТЕЛЬНЫЕ
     // ============================================================

@@ -47,7 +47,7 @@ public class Main extends Application {
             System.out.println("  " + p.getArticle() + " — " + p.getName());
         }
 
-// Тест статистики
+        // Тест статистики
         System.out.println("\n=== Статистика ===");
         TreeStats stats = tree.getStats();
         System.out.println(stats);
@@ -56,6 +56,14 @@ public class Main extends Application {
 
         Product notFound = tree.findByKey(9999);
         System.out.println("Найдено 9999: " + notFound);
+        // Тест генерации
+        System.out.println("\n=== Тест генерации ===");
+        BTreeStore<Integer, Product> bigTree = new BTreeStore<>();
+        bigTree.generateAndAdd(100);
+        System.out.println("Сгенерировано и добавлено: " + bigTree.size());
+
+        TreeStats bigStats = bigTree.getStats();
+        System.out.println("Статистика большого дерева: " + bigStats);
         // ===== Конец теста =====
 
         launch(args);
