@@ -71,12 +71,12 @@ public class MainView {
         table.getColumns().addAll(typeCol, articleCol, nameCol, categoryCol, priceCol, stockCol);
         table.setPlaceholder(new Label("Нет данных. Нажмите «Загрузить пример»."));
 
-        // --- Слушатель выделения: при выборе строки обновляем состояние кнопок ---
+        // Слушатель выделения: при выборе строки обновляем состояние кнопок
         table.getSelectionModel().selectedItemProperty().addListener(
                 (obs, oldVal, newVal) -> updateButtonsState()
         );
 
-        // --- Кнопки ---
+        //Кнопки
         Button loadExampleBtn = new Button("Загрузить пример");
         Button loadBtn = new Button("Загрузить из CSV");
         Button saveBtn = new Button("Сохранить в CSV");
@@ -111,10 +111,7 @@ public class MainView {
         stage.show();
     }
 
-    // ============================================================
-    //                ОБНОВЛЕНИЕ СОСТОЯНИЯ КНОПОК
-    // ============================================================
-
+    //ОБНОВЛЕНИЕ СОСТОЯНИЯ КНОПОК
     /**
      * Обновляет доступность кнопок в зависимости от выделения.
      * Кнопка «Изменить» активна только если выделенный объект реализует Editable.
@@ -126,10 +123,8 @@ public class MainView {
         deleteBtn.setDisable(selected == null);
     }
 
-    // ============================================================
-    //                        ДОБАВЛЕНИЕ
-    // ============================================================
 
+    //ДОБАВЛЕНИЕ
     private void onAdd() {
         ProductDialog dialog = new ProductDialog(stage, null);
         Optional<Product> result = dialog.showAndWait();
@@ -139,10 +134,7 @@ public class MainView {
         }
     }
 
-    // ============================================================
-    //                       РЕДАКТИРОВАНИЕ
-    // ============================================================
-
+    //РЕДАКТИРОВАНИЕ
     private void onEdit() {
         Product selected = table.getSelectionModel().getSelectedItem();
         if (selected == null) {
@@ -165,9 +157,7 @@ public class MainView {
         }
     }
 
-    // ============================================================
-    //                         УДАЛЕНИЕ
-    // ============================================================
+    //УДАЛЕНИЕ
 
     private void onDelete() {
         Product selected = table.getSelectionModel().getSelectedItem();
@@ -189,10 +179,7 @@ public class MainView {
         }
     }
 
-    // ============================================================
-    //                     ЗАГРУЗКА ИЗ CSV
-    // ============================================================
-
+    //ЗАГРУЗКА ИЗ CSV
     private void loadFromResource(String resourcePath) {
         try {
             CsvLoadResult result = csvLoader.loadFromResource(resourcePath);
@@ -232,10 +219,8 @@ public class MainView {
         }
     }
 
-    // ============================================================
-    //                     СОХРАНЕНИЕ В CSV
-    // ============================================================
 
+    //СОХРАНЕНИЕ В CSV
     private void saveToFileChooser() {
         FileChooser fc = new FileChooser();
         fc.setTitle("Сохранить в CSV");
@@ -256,10 +241,8 @@ public class MainView {
         }
     }
 
-    // ============================================================
-    //                        ДИАЛОГИ
-    // ============================================================
 
+    //ДИАЛОГИ
     private void showInfo(String message) {
         Alert alert = new Alert(Alert.AlertType.INFORMATION);
         alert.setTitle("Информация");

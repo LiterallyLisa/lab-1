@@ -23,12 +23,12 @@ public class CsvLoadResult {
         return Collections.unmodifiableList(errors);
     }
 
-    /** true, если при загрузке не было ни одной ошибки. */
+    /** true, если при загрузке не было ни одной ошибки */
     public boolean isSuccess() {
         return errors.isEmpty();
     }
 
-    /** Сколько строк было пропущено. */
+    /** Сколько строк было пропущено */
     public int getSkippedCount() {
         return errors.size();
     }

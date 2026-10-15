@@ -2,11 +2,11 @@ package org.example.io;
 
 /**
  * Исключение, возникающее при разборе одной строки CSV.
- * Содержит код ошибки (для программной обработки) и номер строки в файле (для сообщения пользователю).
+ * Содержит код ошибки (для программной обработки) и номер строки в файле (для сообщения пользователю)
  */
 public class CsvLoadException extends Exception {
 
-    /** Код ошибки — определяет тип проблемы. */
+    /** Код ошибки*/
     public enum ErrorCode {
         WRONG_FIELD_COUNT,   // неверное количество колонок в строке
         BAD_NUMBER,          // не удалось распарсить число (int или double)
@@ -38,7 +38,7 @@ public class CsvLoadException extends Exception {
         return lineNumber;
     }
 
-    /** Удобное строковое представление для логов и диалогов. */
+    /** Удобное строковое представление для логов и диалогов */
     @Override
     public String toString() {
         return "Строка " + lineNumber + ": [" + errorCode + "] " + getMessage();

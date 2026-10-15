@@ -14,8 +14,8 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Модальный диалог создания/редактирования редактируемого товара (WarrantyProduct).
- * Возвращает созданный/изменённый объект, либо пустой Optional, если пользователь отменил.
+ * Модальный диалог создания/редактирования редактируемого товара (WarrantyProduct)
+ * Возвращает созданный/изменённый объект, либо пустой Optional, если пользователь отменил
  */
 public class ProductDialog {
 
@@ -35,7 +35,7 @@ public class ProductDialog {
         dialog.initModality(Modality.APPLICATION_MODAL);
         dialog.setTitle(existing == null ? "Добавить товар" : "Редактировать товар");
 
-        // --- Форма ---
+        // Форма
         GridPane grid = new GridPane();
         grid.setHgap(10);
         grid.setVgap(10);
@@ -55,7 +55,7 @@ public class ProductDialog {
         grid.add(new Label("Срок гарантии (мес.):"), 0, row);
         grid.add(warrantyField, 1, row++);
 
-        // --- Кнопки ---
+        //Кнопки
         Button okBtn = new Button("OK");
         Button cancelBtn = new Button("Отмена");
         okBtn.setOnAction(e -> onOk());
@@ -70,7 +70,7 @@ public class ProductDialog {
 
         dialog.setScene(new javafx.scene.Scene(root, 380, 320));
 
-        // --- Если редактируем, заполняем поля ---
+        //Если редактируем, заполняем поля
         if (existing instanceof WarrantyProduct wp) {
             articleField.setText(String.valueOf(wp.getArticle()));
             nameField.setText(wp.getName());
@@ -87,7 +87,7 @@ public class ProductDialog {
         return Optional.ofNullable(result);
     }
 
-    /** Обработчик OK: парсит поля, валидирует, создаёт объект. */
+    /** Обработчик OK: парсит поля, валидирует, создаёт объект */
     private void onOk() {
         try {
             int article = Integer.parseInt(articleField.getText().trim());

@@ -17,12 +17,6 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Загрузчик и сохранятель товаров в CSV-файл.
- * Формат строки: type;article;name;category;price;stock;warrantyMonths;discontinuedDate
- * Первая строка файла — заголовок, пропускается.
- * Битые строки не прерывают загрузку: они собираются в список ошибок.
- */
 public class CsvLoader {
 
     /** Количество колонок в корректной строке. */
@@ -35,14 +29,14 @@ public class CsvLoader {
     private static final String HEADER =
             "type;article;name;category;price;stock;warrantyMonths;discontinuedDate";
 
-    /** Загружает CSV из файла в файловой системе (для GUI). */
+    /** Загружает CSV из файла в файловой системе (для GUI) */
     public CsvLoadResult load(Path file) throws IOException {
         try (BufferedReader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
             return loadFromReader(reader);
         }
     }
 
-    /** Загружает CSV из ресурса classpath (для тестов и встроенного примера). */
+    /** Загружает CSV из ресурса classpath (для тестов и встроенного примера) */
     public CsvLoadResult loadFromResource(String resourcePath) throws IOException {
         try (InputStream in = CsvLoader.class.getResourceAsStream(resourcePath)) {
             if (in == null) {
@@ -55,7 +49,7 @@ public class CsvLoader {
         }
     }
 
-    /** Общая логика чтения построчно. */
+    /** Общая логика чтения */
     private CsvLoadResult loadFromReader(BufferedReader reader) throws IOException {
         List<Product> products = new ArrayList<>();
         List<String> errors = new ArrayList<>();
@@ -83,8 +77,8 @@ public class CsvLoader {
     }
 
     /**
-     * Разбирает одну строку CSV и создаёт объект нужного типа.
-     * Может бросить CsvLoadException с кодом ошибки и номером строки.
+     * Разбирает одну строку CSV и создаёт объект нужного типа
+     * Может бросить CsvLoadException с кодом ошибки и номером строки
      */
     private Product parseLine(String line, int lineNumber) throws CsvLoadException {
         String[] parts = line.split(SEPARATOR, -1);
@@ -127,7 +121,7 @@ public class CsvLoader {
         }
     }
 
-    /** Сохраняет список товаров в CSV-файл (для GUI). */
+    /** Сохраняет список товаров в CSV-файл (для GUI) */
     public void save(List<Product> products, Path file) throws IOException {
         try (BufferedWriter writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) {
             writer.write('\uFEFF');
@@ -135,7 +129,7 @@ public class CsvLoader {
         }
     }
 
-    /** Общая логика записи. */
+    /** Общая логика записи */
     private void writeAll(List<Product> products, BufferedWriter writer) throws IOException {
         writer.write(HEADER);
         writer.newLine();
@@ -147,7 +141,7 @@ public class CsvLoader {
         }
     }
 
-    /** Преобразует один товар в строку CSV. */
+    /** Преобразует один товар в строку CSV */
     private String toCsvLine(Product p) {
         if (p instanceof DiscontinuedProduct dp) {
             return String.join(SEPARATOR,
