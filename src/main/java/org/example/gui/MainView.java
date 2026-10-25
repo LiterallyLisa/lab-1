@@ -10,6 +10,9 @@ import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
+import javafx.beans.property.SimpleStringProperty;
+import org.example.model.DiscontinuedProduct;
+import org.example.model.WarrantyProduct;
 import org.example.io.CsvLoadResult;
 import org.example.io.CsvLoader;
 import org.example.model.Editable;
@@ -19,9 +22,6 @@ import java.io.File;
 import java.util.List;
 import java.util.Optional;
 
-/**
- * Главное окно приложения «Каталог магазина».
- */
 public class MainView {
 
     private final Stage stage;
@@ -68,7 +68,28 @@ public class MainView {
         stockCol.setCellValueFactory(new PropertyValueFactory<>("stock"));
         stockCol.setPrefWidth(80);
 
-        table.getColumns().addAll(typeCol, articleCol, nameCol, categoryCol, priceCol, stockCol);
+        TableColumn<Product, String> warrantyCol = new TableColumn<>("Гарантия (мес.)");
+        warrantyCol.setCellValueFactory(cd -> {
+            Product p = cd.getValue();
+            String text = (p instanceof WarrantyProduct wp)
+                    ? String.valueOf(wp.getWarrantyMonths())
+                    : "—";
+            return new SimpleStringProperty(text);
+        });
+        warrantyCol.setPrefWidth(120);
+
+        TableColumn<Product, String> discontinuedCol = new TableColumn<>("Снят с продажи");
+        discontinuedCol.setCellValueFactory(cd -> {
+            Product p = cd.getValue();
+            String text = (p instanceof DiscontinuedProduct dp && dp.getDiscontinuedDate() != null)
+                    ? dp.getDiscontinuedDate().toString()
+                    : "—";
+            return new SimpleStringProperty(text);
+        });
+        discontinuedCol.setPrefWidth(130);
+
+        table.getColumns().addAll(typeCol, articleCol, nameCol, categoryCol,
+                priceCol, stockCol, warrantyCol, discontinuedCol);
         table.setPlaceholder(new Label("Нет данных. Нажмите «Загрузить пример»."));
 
         // Слушатель выделения: при выборе строки обновляем состояние кнопок
@@ -99,7 +120,7 @@ public class MainView {
         root.setCenter(table);
         root.setBottom(buttons);
 
-        Scene scene = new Scene(root, 900, 500);
+        Scene scene = new Scene(root, 1100, 700);
         stage.setTitle("Каталог магазина");
         stage.setScene(scene);
 
@@ -112,10 +133,6 @@ public class MainView {
     }
 
     //ОБНОВЛЕНИЕ СОСТОЯНИЯ КНОПОК
-    /**
-     * Обновляет доступность кнопок в зависимости от выделения.
-     * Кнопка «Изменить» активна только если выделенный объект реализует Editable.
-     */
     private void updateButtonsState() {
         Product selected = table.getSelectionModel().getSelectedItem();
         boolean isEditable = selected instanceof Editable;
@@ -158,7 +175,6 @@ public class MainView {
     }
 
     //УДАЛЕНИЕ
-
     private void onDelete() {
         Product selected = table.getSelectionModel().getSelectedItem();
         if (selected == null) {
