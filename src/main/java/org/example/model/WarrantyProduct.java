@@ -2,6 +2,7 @@ package org.example.model;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public class WarrantyProduct extends Product implements Editable {
 
@@ -45,6 +46,17 @@ public class WarrantyProduct extends Product implements Editable {
         }
 
         return errors;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        // super.equals уже проверяет getClass(), поэтому приведение безопасно
+        return super.equals(o) && warrantyMonths == ((WarrantyProduct) o).warrantyMonths;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), warrantyMonths);
     }
 
     @Override

@@ -1,10 +1,9 @@
 // Пакет structure
 package org.example.structure;
 
-import org.example.model.Product;
-
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Objects;
+import java.util.function.Consumer;
+import java.util.function.Function;
 
 /**
  * B-дерево порядка 4 — хранилище пар ключ-значение.
@@ -14,20 +13,30 @@ import java.util.List;
  *  - до 3 ключей в узле;
  *  - до 4 детей в узле;
  *  - все листья на одном уровне.
+ *
+ * Ключ элемента вычисляется переданной в конструктор функцией (например, Product::getArticle),
+ * поэтому структура по-настоящему обобщённая и ничего не знает о конкретной модели.
+ * Ключи уникальны. Класс не потокобезопасен — см. SynchronizedBTreeStore.
  */
 public class BTreeStore<K extends Comparable<K>, T> implements EntityStore<K, T> {
 
     /** Порядок B-дерева. */
-    public static final int ORDER = 4;
+    public static final int ORDER = BTreeNode.ORDER;
 
     /** Максимум ключей в узле (order - 1). */
-    public static final int MAX_KEYS = ORDER - 1;
+    public static final int MAX_KEYS = BTreeNode.MAX_KEYS;
 
     /** Максимум детей в узле (order). */
-    public static final int MAX_CHILDREN = ORDER;
+    public static final int MAX_CHILDREN = BTreeNode.MAX_CHILDREN;
 
     /** Минимум ключей в узле (кроме корня). */
     public static final int MIN_KEYS = (ORDER + 1) / 2 - 1;
+
+    /** Защита validateStructure от зацикленных (повреждённых) деревьев. */
+    private static final int MAX_DEPTH_GUARD = 64;
+
+    /** Как получить ключ из элемента. */
+    private final Function<? super T, ? extends K> keyExtractor;
 
     /** Корень дерева. */
     private BTreeNode<K, T> root;
@@ -35,8 +44,12 @@ public class BTreeStore<K extends Comparable<K>, T> implements EntityStore<K, T>
     /** Количество элементов в дереве. */
     private int size;
 
-    /** Конструктор: создаём пустое дерево. */
-    public BTreeStore() {
+    /**
+     * Конструктор: создаём пустое дерево.
+     * @param keyExtractor функция, достающая ключ из элемента (например, Product::getArticle)
+     */
+    public BTreeStore(Function<? super T, ? extends K> keyExtractor) {
+        this.keyExtractor = Objects.requireNonNull(keyExtractor, "keyExtractor");
         this.root = new BTreeNode<>(true);
         this.size = 0;
     }
@@ -47,17 +60,34 @@ public class BTreeStore<K extends Comparable<K>, T> implements EntityStore<K, T>
 
     /**
      * Добавить значение. Ключ берётся из самого объекта.
+     * @throws IllegalArgumentException если элемент с таким ключом уже есть
      */
     @Override
     public void add(T entity) {
-        K key = extractKey(entity);
+        add(entity, null);
+    }
+
+    /**
+     * Добавить значение и сообщить visitor-у о каждом узле, через который прошла вставка
+     * (для подсветки в визуализации).
+     * @throws IllegalArgumentException если элемент с таким ключом уже есть
+     */
+    public void add(T entity, Consumer<? super BTreeNode<K, T>> visitor) {
+        Objects.requireNonNull(entity, "entity");
+        K key = Objects.requireNonNull(keyExtractor.apply(entity), "key");
+
+        // Проверка ДО любых изменений структуры: при дубликате дерево остаётся нетронутым
+        if (findByKey(key) != null) {
+            throw new IllegalArgumentException("Ключ уже существует: " + key);
+        }
+
         if (root.isFull()) {
             BTreeNode<K, T> newRoot = new BTreeNode<>(false);
             newRoot.setChild(0, root);
             splitChild(newRoot, 0);
             root = newRoot;
         }
-        insertNonFull(root, key, entity);
+        insertNonFull(root, key, entity, visitor);
         size++;
     }
 
@@ -66,7 +96,28 @@ public class BTreeStore<K extends Comparable<K>, T> implements EntityStore<K, T>
      */
     @Override
     public T findByKey(K key) {
-        return findByKeyInNode(root, key);
+        return findByKey(key, null);
+    }
+
+    /**
+     * Найти значение по ключу и сообщить visitor-у о каждом посещённом узле
+     * (от корня вниз) — для подсветки пути поиска.
+     */
+    public T findByKey(K key, Consumer<? super BTreeNode<K, T>> visitor) {
+        BTreeNode<K, T> node = root;
+        while (true) {
+            if (visitor != null) {
+                visitor.accept(node);
+            }
+            int index = node.findKeyIndex(key);
+            if (index < node.getKeyCount() && node.getKey(index).compareTo(key) == 0) {
+                return node.getValue(index);
+            }
+            if (node.isLeaf()) {
+                return null;
+            }
+            node = node.getChild(index);
+        }
     }
 
     /**
@@ -80,9 +131,11 @@ public class BTreeStore<K extends Comparable<K>, T> implements EntityStore<K, T>
         boolean removed = removeFromNode(root, key);
         if (removed) {
             size--;
-            if (root.getKeyCount() == 0 && !root.isLeaf()) {
-                root = root.getChild(0);
-            }
+        }
+        // Слияния узлов при спуске происходят и тогда, когда ключ не найден,
+        // поэтому корень нужно сворачивать всегда, а не только при успешном удалении.
+        if (root.getKeyCount() == 0 && !root.isLeaf()) {
+            root = root.getChild(0);
         }
         return removed;
     }
@@ -94,30 +147,21 @@ public class BTreeStore<K extends Comparable<K>, T> implements EntityStore<K, T>
     public int size() {
         return size;
     }
-    /** Возвращает корень дерева — для визуализации. */
+
+    /** Возвращает корень дерева — для визуализации (узел доступен только для чтения). */
     public BTreeNode<K, T> getRoot() {
         return root;
-    }
-    // ============================================================
-    //                     ПОИСК
-    // ============================================================
-
-    private T findByKeyInNode(BTreeNode<K, T> node, K key) {
-        int index = node.findKeyIndex(key);
-        if (index < node.getKeyCount() && node.getKey(index).compareTo(key) == 0) {
-            return node.getValue(index);
-        }
-        if (node.isLeaf()) {
-            return null;
-        }
-        return findByKeyInNode(node.getChild(index), key);
     }
 
     // ============================================================
     //                     ВСТАВКА
     // ============================================================
 
-    private void insertNonFull(BTreeNode<K, T> node, K key, T value) {
+    private void insertNonFull(BTreeNode<K, T> node, K key, T value,
+                               Consumer<? super BTreeNode<K, T>> visitor) {
+        if (visitor != null) {
+            visitor.accept(node);
+        }
         int index = node.findKeyIndex(key);
         if (node.isLeaf()) {
             node.insertKey(key, value);
@@ -129,7 +173,7 @@ public class BTreeStore<K extends Comparable<K>, T> implements EntityStore<K, T>
                     index++;
                 }
             }
-            insertNonFull(node.getChild(index), key, value);
+            insertNonFull(node.getChild(index), key, value, visitor);
         }
     }
 
@@ -145,6 +189,7 @@ public class BTreeStore<K extends Comparable<K>, T> implements EntityStore<K, T>
         if (!fullChild.isLeaf()) {
             for (int i = mid + 1; i <= MAX_KEYS; i++) {
                 newChild.setChild(i - (mid + 1), fullChild.getChild(i));
+                fullChild.setChild(i, null);   // ребёнок теперь принадлежит newChild
             }
         }
         for (int i = parent.getKeyCount(); i > childIndex; i--) {
@@ -152,7 +197,7 @@ public class BTreeStore<K extends Comparable<K>, T> implements EntityStore<K, T>
         }
         parent.setChild(childIndex + 1, newChild);
         parent.insertKey(fullChild.getKey(mid), fullChild.getValue(mid));
-        fullChild.setKeyCount(mid);
+        fullChild.truncate(mid);
     }
 
     // ============================================================
@@ -177,7 +222,7 @@ public class BTreeStore<K extends Comparable<K>, T> implements EntityStore<K, T>
             return false;
         }
 
-        // Упреждающее обеспечение
+        // Упреждающее обеспечение: в ребёнка заходим, только если в нём больше MIN_KEYS ключей
         if (node.getChild(index).getKeyCount() == MIN_KEYS) {
             fillChild(node, index);
         }
@@ -195,14 +240,16 @@ public class BTreeStore<K extends Comparable<K>, T> implements EntityStore<K, T>
         BTreeNode<K, T> rightChild = node.getChild(index + 1);
 
         if (leftChild.getKeyCount() > MIN_KEYS) {
-            K predKey = getPredecessorKey(leftChild);
-            T predValue = getPredecessorValue(leftChild);
+            BTreeNode<K, T> pred = rightmostLeaf(leftChild);
+            K predKey = pred.getKey(pred.getKeyCount() - 1);
+            T predValue = pred.getValue(pred.getKeyCount() - 1);
             node.setKey(index, predKey);
             node.setValue(index, predValue);
             return removeFromNode(leftChild, predKey);
         } else if (rightChild.getKeyCount() > MIN_KEYS) {
-            K succKey = getSuccessorKey(rightChild);
-            T succValue = getSuccessorValue(rightChild);
+            BTreeNode<K, T> succ = leftmostLeaf(rightChild);
+            K succKey = succ.getKey(0);
+            T succValue = succ.getValue(0);
             node.setKey(index, succKey);
             node.setValue(index, succValue);
             return removeFromNode(rightChild, succKey);
@@ -212,32 +259,18 @@ public class BTreeStore<K extends Comparable<K>, T> implements EntityStore<K, T>
         }
     }
 
-    private K getPredecessorKey(BTreeNode<K, T> node) {
+    private BTreeNode<K, T> rightmostLeaf(BTreeNode<K, T> node) {
         while (!node.isLeaf()) {
             node = node.getChild(node.getKeyCount());
         }
-        return node.getKey(node.getKeyCount() - 1);
+        return node;
     }
 
-    private T getPredecessorValue(BTreeNode<K, T> node) {
-        while (!node.isLeaf()) {
-            node = node.getChild(node.getKeyCount());
-        }
-        return node.getValue(node.getKeyCount() - 1);
-    }
-
-    private K getSuccessorKey(BTreeNode<K, T> node) {
+    private BTreeNode<K, T> leftmostLeaf(BTreeNode<K, T> node) {
         while (!node.isLeaf()) {
             node = node.getChild(0);
         }
-        return node.getKey(0);
-    }
-
-    private T getSuccessorValue(BTreeNode<K, T> node) {
-        while (!node.isLeaf()) {
-            node = node.getChild(0);
-        }
-        return node.getValue(0);
+        return node;
     }
 
     private void fillChild(BTreeNode<K, T> node, int index) {
@@ -304,7 +337,7 @@ public class BTreeStore<K extends Comparable<K>, T> implements EntityStore<K, T>
         BTreeNode<K, T> leftChild = parent.getChild(index);
         BTreeNode<K, T> rightChild = parent.getChild(index + 1);
 
-        // СОХРАНЯЕМ исходное количество ключей левого ребёнка ДО слияния
+        // Исходное количество ключей левого ребёнка ДО слияния
         int leftOriginalCount = leftChild.getKeyCount();
 
         // Спускаем ключ родителя в левого ребёнка
@@ -337,36 +370,58 @@ public class BTreeStore<K extends Comparable<K>, T> implements EntityStore<K, T>
     }
 
     // ============================================================
-    //                ДОПОЛНИТЕЛЬНЫЕ ОПЕРАЦИИ
+    //                     ОБХОД И ДИАПАЗОН
     // ============================================================
 
-    /**
-     * Диапазонный скан: найти все значения с ключом в диапазоне [from, to] включительно.
-     */
-    public List<T> rangeScan(K from, K to) {
-        List<T> result = new ArrayList<>();
-        rangeScanInNode(root, from, to, result);
-        return result;
+    /** Обходит все значения в порядке возрастания ключей. */
+    public void forEach(Consumer<? super T> action) {
+        Objects.requireNonNull(action, "action");
+        traverse(root, action);
     }
 
-    private void rangeScanInNode(BTreeNode<K, T> node, K from, K to, List<T> result) {
+    private void traverse(BTreeNode<K, T> node, Consumer<? super T> action) {
+        for (int i = 0; i < node.getKeyCount(); i++) {
+            if (!node.isLeaf()) {
+                traverse(node.getChild(i), action);
+            }
+            action.accept(node.getValue(i));
+        }
+        if (!node.isLeaf()) {
+            traverse(node.getChild(node.getKeyCount()), action);
+        }
+    }
+
+    /**
+     * Диапазонный скан: передаёт action все значения с ключом в [from, to] включительно,
+     * в порядке возрастания ключей. Сложность: O(log n + k), где k — число найденных элементов.
+     */
+    public void forEachInRange(K from, K to, Consumer<? super T> action) {
+        Objects.requireNonNull(from, "from");
+        Objects.requireNonNull(to, "to");
+        Objects.requireNonNull(action, "action");
+        if (from.compareTo(to) > 0) {
+            return;
+        }
+        rangeScanInNode(root, from, to, action);
+    }
+
+    private void rangeScanInNode(BTreeNode<K, T> node, K from, K to, Consumer<? super T> action) {
         int i = 0;
         while (i < node.getKeyCount()) {
             K key = node.getKey(i);
             int cmpFrom = key.compareTo(from);
             int cmpTo = key.compareTo(to);
 
-            // Если ключ >= from и в узле есть левый ребёнок — идём в него
+            // Левый ребёнок содержит ключи меньше key; нужен, только если key > from
             if (cmpFrom > 0 && !node.isLeaf()) {
-                rangeScanInNode(node.getChild(i), from, to, result);
+                rangeScanInNode(node.getChild(i), from, to, action);
             }
 
-            // Если ключ в диапазоне — добавляем значение
             if (cmpFrom >= 0 && cmpTo <= 0) {
-                result.add(node.getValue(i));
+                action.accept(node.getValue(i));
             }
 
-            // Если ключ > to — дальше смысла нет
+            // Ключ больше верхней границы — правее искать нечего
             if (cmpTo > 0) {
                 return;
             }
@@ -376,84 +431,139 @@ public class BTreeStore<K extends Comparable<K>, T> implements EntityStore<K, T>
 
         // Правый ребёнок последнего ключа
         if (!node.isLeaf()) {
-            rangeScanInNode(node.getChild(node.getKeyCount()), from, to, result);
+            rangeScanInNode(node.getChild(node.getKeyCount()), from, to, action);
         }
     }
 
+    // ============================================================
+    //                     СТАТИСТИКА
+    // ============================================================
+
+    /** Накопитель для обхода при подсчёте статистики. */
+    private static final class StatsCounter {
+        int nodes;
+        int leaves;
+        int internal;
+        int keys;
+        final int[] histogram = new int[MAX_KEYS + 1];
+    }
+
     /**
-     * Статистика дерева.
+     * Статистика дерева (один обход, O(n)).
      */
     public TreeStats getStats() {
-        int[] counters = new int[5];   // [0] totalNodes, [1] leaves, [2] internal, [3] full, [4] notFull
-        int height = computeHeight(root, counters);
-        int totalKeys = size;
-        double avg = counters[0] > 0 ? (double) totalKeys / counters[0] : 0;
-        return new TreeStats(counters[0], counters[1], counters[2], height, avg, counters[3], counters[4], totalKeys);
+        if (size == 0) {
+            return TreeStats.empty();
+        }
+        StatsCounter c = new StatsCounter();
+        int height = collectStats(root, c);
+        return new TreeStats(c.nodes, c.leaves, c.internal, height, c.keys, c.histogram);
     }
 
-    private int computeHeight(BTreeNode<K, T> node, int[] counters) {
-        counters[0]++;
+    private int collectStats(BTreeNode<K, T> node, StatsCounter c) {
+        c.nodes++;
+        c.keys += node.getKeyCount();
+        c.histogram[node.getKeyCount()]++;
         if (node.isLeaf()) {
-            counters[1]++;
-            if (node.isFull()) counters[3]++;
-            else counters[4]++;
+            c.leaves++;
             return 1;
-        } else {
-            counters[2]++;
-            if (node.isFull()) counters[3]++;
-            else counters[4]++;
-            int maxHeight = 0;
-            for (int i = 0; i <= node.getKeyCount(); i++) {
-                if (node.getChild(i) != null) {
-                    int h = computeHeight(node.getChild(i), counters);
-                    if (h > maxHeight) maxHeight = h;
-                }
-            }
-            return maxHeight + 1;
         }
+        c.internal++;
+        int maxHeight = 0;
+        for (int i = 0; i <= node.getKeyCount(); i++) {
+            BTreeNode<K, T> child = node.getChild(i);
+            if (child != null) {
+                maxHeight = Math.max(maxHeight, collectStats(child, c));
+            }
+        }
+        return maxHeight + 1;
+    }
+
+    // ============================================================
+    //                     САМОПРОВЕРКА СТРУКТУРЫ
+    // ============================================================
+
+    /** Накопитель для validateStructure. */
+    private static final class Validation {
+        int keys;
+        int leafDepth = -1;
     }
 
     /**
-     * Генерирует N случайных товаров и добавляет их в дерево.
-     * Вспомогательный метод для тестирования и демонстрации.
+     * Проверяет инварианты B-дерева: порядок ключей, границы в поддеревьях,
+     * число ключей и детей в узлах, одинаковую глубину листьев, соответствие size.
+     * @return null, если дерево корректно, иначе описание первой найденной проблемы
      */
-    @SuppressWarnings("unchecked")
-    public void generateAndAdd(int count) {
-        DataGenerator generator = new DataGenerator();
-        Product[] generated = generator.generate(count);
-        for (Product p : generated) {
-            add((T) p);
+    public String validateStructure() {
+        Validation v = new Validation();
+        String error = validateNode(root, true, 0, null, null, v);
+        if (error != null) {
+            return error;
         }
-    }
-    /**
-     * Получить все значения из дерева в порядке возрастания ключей.
-     * Используется для отображения в таблице GUI.
-     */
-    public List<T> getAll() {
-        List<T> result = new ArrayList<>();
-        collectAll(root, result);
-        return result;
+        if (v.keys != size) {
+            return "size() = " + size + ", а в узлах найдено ключей: " + v.keys;
+        }
+        return null;
     }
 
-    private void collectAll(BTreeNode<K, T> node, List<T> result) {
-        if (node == null) return;
-        for (int i = 0; i < node.getKeyCount(); i++) {
-            if (!node.isLeaf()) {
-                collectAll(node.getChild(i), result);
+    private String validateNode(BTreeNode<K, T> node, boolean isRoot, int depth,
+                                K lo, K hi, Validation v) {
+        if (node == null) {
+            return "ссылка на узел равна null";
+        }
+        if (depth > MAX_DEPTH_GUARD) {
+            return "глубина больше " + MAX_DEPTH_GUARD + " (возможен цикл)";
+        }
+        int k = node.getKeyCount();
+        if (k < 0 || k > MAX_KEYS) {
+            return "недопустимое число ключей " + k;
+        }
+        if (!isRoot && k < MIN_KEYS) {
+            return "в узле " + node + " ключей меньше минимума";
+        }
+        if (isRoot && !node.isLeaf() && k == 0) {
+            return "внутренний корень без ключей";
+        }
+        v.keys += k;
+
+        for (int i = 0; i < k; i++) {
+            K key = node.getKey(i);
+            if (key == null) {
+                return "null-ключ в узле " + node;
             }
-            result.add(node.getValue(i));
+            if (i > 0 && node.getKey(i - 1).compareTo(key) >= 0) {
+                return "ключи не по возрастанию в узле " + node;
+            }
+            if (lo != null && key.compareTo(lo) <= 0) {
+                return "ключ " + key + " нарушает нижнюю границу поддерева";
+            }
+            if (hi != null && key.compareTo(hi) >= 0) {
+                return "ключ " + key + " нарушает верхнюю границу поддерева";
+            }
+            T value = node.getValue(i);
+            if (value == null || keyExtractor.apply(value).compareTo(key) != 0) {
+                return "значение не соответствует ключу " + key;
+            }
         }
-        if (!node.isLeaf()) {
-            collectAll(node.getChild(node.getKeyCount()), result);
-        }
-    }
-    // ============================================================
-    //                     ВСПОМОГАТЕЛЬНЫЕ
-    // ============================================================
 
-    @SuppressWarnings("unchecked")
-    private K extractKey(T entity) {
-        return (K) Integer.valueOf(((Product) entity).getArticle());
+        if (node.isLeaf()) {
+            if (v.leafDepth == -1) {
+                v.leafDepth = depth;
+            } else if (v.leafDepth != depth) {
+                return "листья расположены на разных уровнях";
+            }
+            return null;
+        }
+
+        for (int i = 0; i <= k; i++) {
+            K childLo = (i == 0) ? lo : node.getKey(i - 1);
+            K childHi = (i == k) ? hi : node.getKey(i);
+            String error = validateNode(node.getChild(i), false, depth + 1, childLo, childHi, v);
+            if (error != null) {
+                return error;
+            }
+        }
+        return null;
     }
 
     @Override

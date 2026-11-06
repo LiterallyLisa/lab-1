@@ -4,33 +4,40 @@ import javafx.geometry.Insets;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.stage.Stage;
-import org.example.structure.BTreeStore;
 import org.example.model.Product;
+import org.example.structure.BTreeNode;
+import org.example.structure.BTreeStore;
+
+import java.util.Set;
 
 /**
- * Отдельное окно для визуализации B-дерева.
+ * Отдельное (немодальное) окно для визуализации B-дерева.
+ * Главное окно вызывает update(...) после каждой операции, поэтому картинка всегда актуальна,
+ * даже если дерево было заменено целиком (загрузка, генерация).
  */
 public class TreeViewWindow {
 
     private final Stage window;
     private final TreeCanvas treeCanvas;
-    private final BTreeStore<Integer, Product> tree;
+    private final Label info = new Label();
 
-    public TreeViewWindow(Stage owner, BTreeStore<Integer, Product> tree) {
-        this.tree = tree;
+    /** Последнее показанное дерево — для кнопки «Обновить». */
+    private BTreeStore<Integer, Product> tree;
+
+    public TreeViewWindow(Stage owner) {
         this.window = new Stage();
         this.window.initOwner(owner);
         this.window.setTitle("Визуализация B-дерева");
 
-        // Canvas
         this.treeCanvas = new TreeCanvas(900, 600);
 
-        // Кнопка «Обновить»
+        // Кнопка «Обновить» — перерисовка без подсветки
         Button refreshBtn = new Button("Обновить");
-        refreshBtn.setOnAction(e -> treeCanvas.draw(tree));
+        refreshBtn.setOnAction(e -> update(tree, Set.of()));
 
         // Кнопка «Закрыть»
         Button closeBtn = new Button("Закрыть");
@@ -39,21 +46,39 @@ public class TreeViewWindow {
         HBox buttons = new HBox(10, refreshBtn, closeBtn);
         buttons.setPadding(new Insets(10));
 
-        Label info = new Label("Элементов в дереве: " + tree.size());
         info.setPadding(new Insets(10));
 
         BorderPane root = new BorderPane();
-        root.setCenter(treeCanvas.getCanvas());
         root.setTop(info);
+        root.setCenter(new ScrollPane(treeCanvas.getCanvas()));
         root.setBottom(buttons);
 
-        Scene scene = new Scene(root, 920, 680);
-        window.setScene(scene);
+        window.setScene(new Scene(root, 920, 680));
     }
 
-    /** Показать окно и сразу нарисовать дерево. */
-    public void show() {
-        treeCanvas.draw(tree);   // рисуем сразу
+    public boolean isShowing() {
+        return window.isShowing();
+    }
+
+    /** Показать окно (вынести на передний план) и сразу нарисовать дерево. */
+    public void show(BTreeStore<Integer, Product> tree, Set<BTreeNode<?, ?>> highlighted) {
         window.show();
+        window.toFront();
+        update(tree, highlighted);
+    }
+
+    /** Перерисовать окно для (возможно, нового) дерева с подсветкой указанных узлов. */
+    public void update(BTreeStore<Integer, Product> tree, Set<BTreeNode<?, ?>> highlighted) {
+        this.tree = tree;
+        String note = treeCanvas.draw(tree, highlighted);
+
+        StringBuilder text = new StringBuilder("Элементов в дереве: " + tree.size());
+        if (!highlighted.isEmpty()) {
+            text.append("   |   Подсвечено узлов: ").append(highlighted.size());
+        }
+        if (!note.isEmpty()) {
+            text.append("   |   ").append(note);
+        }
+        info.setText(text.toString());
     }
 }

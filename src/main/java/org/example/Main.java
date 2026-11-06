@@ -16,9 +16,10 @@ public class Main extends Application {
 
     public static void main(String[] args) {
         // 1. Сравнение с java.util
-        Benchmark.compare(1000);
-        Benchmark.compare(10000);
-        Benchmark.compare(100000);
+        Benchmark.compare(1000, true);   // 1000, вставка по возрастанию
+        Benchmark.compare(1000, false);  // 1000, вставка в случайном порядке
+        Benchmark.compare(10000, true);
+        Benchmark.compare(10000, false);
 
         // 2. Демонстрация concurrency
         try {

@@ -4,14 +4,20 @@ package org.example.structure;
 /**
  * Узел B-дерева порядка 4.
  * Узел хранит: до 3 ключей, до 3 значений, до 4 детей, счётчик и флаг листа.
+ *
+ * Читать узел можно откуда угодно (для визуализации), а менять — только внутри пакета,
+ * то есть только самому BTreeStore: так снаружи нельзя случайно сломать структуру.
  */
 public class BTreeNode<K extends Comparable<K>, T> {
 
+    /** Порядок дерева. */
+    public static final int ORDER = 4;
+
     /** Максимум ключей в узле (порядок - 1 = 3). */
-    public static final int MAX_KEYS = 3;
+    public static final int MAX_KEYS = ORDER - 1;
 
     /** Максимум детей в узле (порядок = 4). */
-    public static final int MAX_CHILDREN = 4;
+    public static final int MAX_CHILDREN = ORDER;
 
     /** Массив ключей. Object[] — потому что дженерик-массив создать нельзя. */
     private final Object[] keys;
@@ -26,17 +32,19 @@ public class BTreeNode<K extends Comparable<K>, T> {
     private int keyCount;
 
     /** Является ли узел листом. */
-    private boolean leaf;
+    private final boolean leaf;
 
     /** Конструктор узла. leaf=true — лист, false — внутренний. */
     @SuppressWarnings("unchecked")
-    public BTreeNode(boolean leaf) {
+    BTreeNode(boolean leaf) {
         this.keys = new Object[MAX_KEYS];
         this.values = new Object[MAX_KEYS];
         this.children = new BTreeNode[MAX_CHILDREN];
         this.keyCount = 0;
         this.leaf = leaf;
     }
+
+    // ---------------------- чтение (public) ----------------------
 
     /** true, если узел заполнен (3 ключа). */
     public boolean isFull() {
@@ -53,11 +61,6 @@ public class BTreeNode<K extends Comparable<K>, T> {
         return keyCount;
     }
 
-    /** Устанавливает счётчик ключей (для внутреннего использования). */
-    public void setKeyCount(int count) {
-        this.keyCount = count;
-    }
-
     /** Ключ по индексу. */
     @SuppressWarnings("unchecked")
     public K getKey(int index) {
@@ -70,24 +73,9 @@ public class BTreeNode<K extends Comparable<K>, T> {
         return (T) values[index];
     }
 
-    /** Устанавливает ключ по индексу. */
-    public void setKey(int index, K key) {
-        keys[index] = key;
-    }
-
-    /** Устанавливает значение по индексу. */
-    public void setValue(int index, T value) {
-        values[index] = value;
-    }
-
     /** Ребёнок по индексу. */
     public BTreeNode<K, T> getChild(int index) {
         return children[index];
-    }
-
-    /** Устанавливает ребёнка по индексу. */
-    public void setChild(int index, BTreeNode<K, T> child) {
-        children[index] = child;
     }
 
     /**
@@ -103,11 +91,29 @@ public class BTreeNode<K extends Comparable<K>, T> {
         return i;
     }
 
+    // ---------------------- изменение (только пакет) ----------------------
+
+    void setKeyCount(int count) {
+        this.keyCount = count;
+    }
+
+    void setKey(int index, K key) {
+        keys[index] = key;
+    }
+
+    void setValue(int index, T value) {
+        values[index] = value;
+    }
+
+    void setChild(int index, BTreeNode<K, T> child) {
+        children[index] = child;
+    }
+
     /**
      * Вставляет пару (ключ, значение) в узел.
      * Предполагается, что узел НЕ полон.
      */
-    public void insertKey(K key, T value) {
+    void insertKey(K key, T value) {
         int i = findKeyIndex(key);
         for (int j = keyCount; j > i; j--) {
             keys[j] = keys[j - 1];
@@ -118,10 +124,8 @@ public class BTreeNode<K extends Comparable<K>, T> {
         keyCount++;
     }
 
-    /**
-     * Удаляет ключ и значение по индексу, сдвигая остальные влево.
-     */
-    public void removeKey(int index) {
+    /** Удаляет ключ и значение по индексу, сдвигая остальные влево. */
+    void removeKey(int index) {
         for (int i = index; i < keyCount - 1; i++) {
             keys[i] = keys[i + 1];
             values[i] = values[i + 1];
@@ -129,6 +133,15 @@ public class BTreeNode<K extends Comparable<K>, T> {
         keys[keyCount - 1] = null;
         values[keyCount - 1] = null;
         keyCount--;
+    }
+
+    /** Оставляет первые newCount ключей, остальные обнуляет (чтобы не держать лишние ссылки). */
+    void truncate(int newCount) {
+        for (int i = newCount; i < keyCount; i++) {
+            keys[i] = null;
+            values[i] = null;
+        }
+        keyCount = newCount;
     }
 
     /** Строковое представление для отладки. */

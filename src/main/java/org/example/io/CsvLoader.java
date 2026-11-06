@@ -6,6 +6,7 @@ import org.example.model.WarrantyProduct;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -16,6 +17,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CancellationException;
 
 public class CsvLoader {
 
@@ -25,32 +27,66 @@ public class CsvLoader {
     /** Разделитель полей. */
     private static final String SEPARATOR = ";";
 
+    /** Как часто (в строках) сообщать о прогрессе и проверять отмену. Должно быть степенью двойки. */
+    private static final int PROGRESS_EVERY_LINES = 256;
+
+    /**
+     * Слушатель прогресса чтения. Вызывается из потока, который читает файл.
+     * Вернув false, слушатель прерывает загрузку (CancellationException).
+     */
+    @FunctionalInterface
+    public interface ProgressListener {
+        /**
+         * @param bytesRead  сколько байт уже прочитано
+         * @param totalBytes общий размер или -1, если он неизвестен (например, ресурс из jar)
+         * @return true — продолжать, false — отменить
+         */
+        boolean onProgress(long bytesRead, long totalBytes);
+    }
+
     /** Заголовок CSV-файла. */
     private static final String HEADER =
             "type;article;name;category;price;stock;warrantyMonths;discontinuedDate";
 
     /** Загружает CSV из файла в файловой системе (для GUI) */
     public CsvLoadResult load(Path file) throws IOException {
-        try (BufferedReader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
-            return loadFromReader(reader);
+        return load(file, null);
+    }
+
+    /**
+     * Загружает CSV из файла с отчётом о прогрессе и возможностью отмены.
+     * @param listener может быть null
+     * @throws CancellationException если слушатель запросил отмену
+     */
+    public CsvLoadResult load(Path file, ProgressListener listener) throws IOException {
+        long total = Files.size(file);
+        try (CountingInputStream in = new CountingInputStream(Files.newInputStream(file));
+             BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
+            return loadFromReader(reader, in, total, listener);
         }
     }
 
     /** Загружает CSV из ресурса classpath (для тестов и встроенного примера) */
     public CsvLoadResult loadFromResource(String resourcePath) throws IOException {
-        try (InputStream in = CsvLoader.class.getResourceAsStream(resourcePath)) {
-            if (in == null) {
+        return loadFromResource(resourcePath, null);
+    }
+
+    /** То же с отчётом о прогрессе (общий размер неизвестен, поэтому totalBytes = -1). */
+    public CsvLoadResult loadFromResource(String resourcePath, ProgressListener listener) throws IOException {
+        try (InputStream raw = CsvLoader.class.getResourceAsStream(resourcePath)) {
+            if (raw == null) {
                 throw new IOException("Ресурс не найден: " + resourcePath);
             }
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(in, StandardCharsets.UTF_8))) {
-                return loadFromReader(reader);
+            try (CountingInputStream in = new CountingInputStream(raw);
+                 BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
+                return loadFromReader(reader, in, -1, listener);
             }
         }
     }
 
     /** Общая логика чтения */
-    private CsvLoadResult loadFromReader(BufferedReader reader) throws IOException {
+    private CsvLoadResult loadFromReader(BufferedReader reader, CountingInputStream counter,
+                                         long totalBytes, ProgressListener listener) throws IOException {
         List<Product> products = new ArrayList<>();
         List<String> errors = new ArrayList<>();
 
@@ -62,6 +98,10 @@ public class CsvLoader {
 
         while ((line = reader.readLine()) != null) {
             lineNumber++;
+            if (listener != null && (lineNumber & (PROGRESS_EVERY_LINES - 1)) == 0
+                    && !listener.onProgress(counter.getCount(), totalBytes)) {
+                throw new CancellationException("Загрузка отменена");
+            }
             if (line.isBlank()) {
                 continue;
             }
@@ -228,5 +268,32 @@ public class CsvLoader {
             );
         }
         return trimmed;
+    }
+
+    /** Считает байты, прошедшие через поток, — для расчёта прогресса. */
+    private static final class CountingInputStream extends FilterInputStream {
+        private long count;
+
+        CountingInputStream(InputStream in) {
+            super(in);
+        }
+
+        long getCount() {
+            return count;
+        }
+
+        @Override
+        public int read() throws IOException {
+            int b = super.read();
+            if (b >= 0) count++;
+            return b;
+        }
+
+        @Override
+        public int read(byte[] buf, int off, int len) throws IOException {
+            int n = super.read(buf, off, len);
+            if (n > 0) count += n;
+            return n;
+        }
     }
 }

@@ -1,6 +1,7 @@
 package org.example.model;
 
 import java.time.LocalDate;
+import java.util.Objects;
 
 public class DiscontinuedProduct extends Product {
 
@@ -19,6 +20,17 @@ public class DiscontinuedProduct extends Product {
 
     public void setDiscontinuedDate(LocalDate discontinuedDate) {
         this.discontinuedDate = discontinuedDate;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        return super.equals(o)
+                && Objects.equals(discontinuedDate, ((DiscontinuedProduct) o).discontinuedDate);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), discontinuedDate);
     }
 
     @Override
