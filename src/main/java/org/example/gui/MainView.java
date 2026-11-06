@@ -16,8 +16,10 @@ import javafx.stage.Stage;
 import org.example.async.LoadTask;
 import org.example.io.CsvLoadResult;
 import org.example.io.CsvLoader;
+import org.example.model.DiscontinuedProduct;
 import org.example.model.Editable;
 import org.example.model.Product;
+import org.example.model.WarrantyProduct;
 import org.example.structure.BTreeStore;
 import org.example.structure.TreeStats;
 
@@ -81,7 +83,32 @@ public class MainView {
         stockCol.setCellValueFactory(new PropertyValueFactory<>("stock"));
         stockCol.setPrefWidth(80);
 
-        table.getColumns().addAll(typeCol, articleCol, nameCol, categoryCol, priceCol, stockCol);
+        // --- ДОБАВЛЕННЫЕ КОЛОНКИ ---
+
+        TableColumn<Product, String> warrantyCol = new TableColumn<>("Гарантия (мес.)");
+        warrantyCol.setCellValueFactory(cd -> {
+            Product p = cd.getValue();
+            String text = (p instanceof WarrantyProduct wp)
+                    ? String.valueOf(wp.getWarrantyMonths())
+                    : "—";
+            return new javafx.beans.property.SimpleStringProperty(text);
+        });
+        warrantyCol.setPrefWidth(120);
+
+        TableColumn<Product, String> discontinuedCol = new TableColumn<>("Снят с продажи");
+        discontinuedCol.setCellValueFactory(cd -> {
+            Product p = cd.getValue();
+            String text = (p instanceof DiscontinuedProduct dp && dp.getDiscontinuedDate() != null)
+                    ? dp.getDiscontinuedDate().toString()
+                    : "—";
+            return new javafx.beans.property.SimpleStringProperty(text);
+        });
+        discontinuedCol.setPrefWidth(130);
+
+        // --- ДОБАВЛЯЕМ ВСЕ КОЛОНКИ В ТАБЛИЦУ ---
+        table.getColumns().addAll(typeCol, articleCol, nameCol, categoryCol,
+                priceCol, stockCol, warrantyCol, discontinuedCol);
+
         table.setPlaceholder(new Label("Нет данных. Нажмите «Загрузить пример»."));
 
         table.getSelectionModel().selectedItemProperty().addListener(
@@ -117,7 +144,7 @@ public class MainView {
         root.setCenter(table);
         root.setBottom(buttons);
 
-        Scene scene = new Scene(root, 1200, 550);
+        Scene scene = new Scene(root, 1300, 600); // Расширил окно под новые колонки
         stage.setTitle("Каталог магазина (B-дерево)");
         stage.setScene(scene);
 
@@ -328,31 +355,26 @@ public class MainView {
      * Показывает диалог с прогресс-баром и запускает Task в фоне.
      */
     private void showTaskDialog(Task<CsvLoadResult> task, String title, String successMessage) {
-        // Прогресс-бар
         ProgressBar progressBar = new ProgressBar();
         progressBar.progressProperty().bind(task.progressProperty());
         progressBar.setPrefWidth(350);
 
-        // Сообщение
         Label statusLabel = new Label();
         statusLabel.textProperty().bind(task.messageProperty());
 
-        // Кнопка отмены
         Button cancelBtn = new Button("Отмена");
         cancelBtn.setOnAction(e -> task.cancel());
 
         VBox content = new VBox(10, statusLabel, progressBar, cancelBtn);
         content.setPadding(new Insets(15));
 
-        // Диалог
         Stage dialog = new Stage();
         dialog.initOwner(stage);
         dialog.initModality(Modality.APPLICATION_MODAL);
         dialog.setTitle(title);
         dialog.setScene(new Scene(content, 420, 150));
-        dialog.setOnCloseRequest(e -> task.cancel());   // закрытие = отмена
+        dialog.setOnCloseRequest(e -> task.cancel());
 
-        // Обработка завершения
         task.setOnSucceeded(e -> {
             dialog.close();
             CsvLoadResult result = task.getValue();
@@ -373,7 +395,6 @@ public class MainView {
             showInfo("Загрузка отменена");
         });
 
-        // Запуск в фоне
         Thread thread = new Thread(task);
         thread.setDaemon(true);
         thread.start();
