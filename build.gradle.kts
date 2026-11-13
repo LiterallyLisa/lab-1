@@ -32,6 +32,8 @@ application {
 }
 
 dependencies {
+    implementation("com.fasterxml.jackson.core:jackson-databind:2.17.2")
+
     testImplementation(platform("org.junit:junit-bom:6.0.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
@@ -39,6 +41,7 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+    defaultCharacterEncoding = "UTF-8"
 }
 tasks.processResources {
     duplicatesStrategy = DuplicatesStrategy.INCLUDE
@@ -50,4 +53,12 @@ tasks.named<JavaExec>("run") {
         systemProperty("stderr.encoding", "UTF-8")
     }
 
+}
+
+tasks.register<JavaExec>("formatBenchmark") {
+    group = "verification"
+    description = "Сравнение JSON и бинарного формата (размер, время)"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("org.example.serialization.FormatBenchmark")
+    jvmArgs("-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8")
 }

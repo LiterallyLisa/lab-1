@@ -1,0 +1,27 @@
+{
+  "schema_version" : 99,
+  "products" : [ {
+    "type" : "BASE",
+    "article" : 1001,
+    "name" : "Стол письменный",
+    "category" : "Мебель",
+    "price" : 8999.0,
+    "stock" : 12
+  }, {
+    "type" : "WARRANTY",
+    "article" : 1002,
+    "name" : "Ноутбук",
+    "category" : "Электроника",
+    "price" : 79999.99,
+    "stock" : 15,
+    "warrantyMonths" : 24
+  }, {
+    "type" : "DISCONTINUED",
+    "article" : 1003,
+    "name" : "Плеер",
+    "category" : "Электроника",
+    "price" : 2999.0,
+    "stock" : 0,
+    "discontinuedDate" : "2024-06-01"
+  } ]
+}

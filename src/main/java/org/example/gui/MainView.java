@@ -15,19 +15,26 @@ import javafx.stage.FileChooser;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
 import org.example.async.BuildResult;
+import org.example.async.ExportTask;
 import org.example.async.GenerateTask;
+import org.example.async.ImportTask;
 import org.example.async.LoadTask;
 import org.example.io.CsvLoader;
 import org.example.model.DiscontinuedProduct;
 import org.example.model.Editable;
 import org.example.model.Product;
 import org.example.model.WarrantyProduct;
+import org.example.serialization.CatalogData;
+import org.example.serialization.SerializationException;
+import org.example.serialization.Serializer;
+import org.example.serialization.Serializers;
 import org.example.structure.BTreeNode;
 import org.example.structure.BTreeStore;
 import org.example.structure.DataGenerator;
 import org.example.structure.TreeStats;
 
 import java.io.File;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -170,6 +177,8 @@ public class MainView {
         Button loadExampleBtn = new Button("Загрузить пример");
         Button loadBtn = new Button("Загрузить из CSV");
         Button saveBtn = new Button("Сохранить в CSV");
+        Button exportBtn = new Button("Экспорт (JSON/BIN)");
+        Button importBtn = new Button("Импорт (JSON/BIN)");
         Button addBtn = new Button("Добавить");
         editBtn = new Button("Изменить");
         deleteBtn = new Button("Удалить");
@@ -180,6 +189,8 @@ public class MainView {
         loadExampleBtn.setOnAction(e -> loadFromResource("/products.csv"));
         loadBtn.setOnAction(e -> loadFromFileChooser());
         saveBtn.setOnAction(e -> saveToFileChooser());
+        exportBtn.setOnAction(e -> onExport());
+        importBtn.setOnAction(e -> onImport());
         addBtn.setOnAction(e -> onAdd());
         editBtn.setOnAction(e -> onEdit());
         deleteBtn.setOnAction(e -> onDelete());
@@ -188,7 +199,7 @@ public class MainView {
         generateBtn.setOnAction(e -> onGenerate());
 
         HBox buttons = new HBox(10,
-                loadExampleBtn, loadBtn, saveBtn, addBtn, editBtn, deleteBtn,
+                loadExampleBtn, loadBtn, saveBtn, exportBtn, importBtn, addBtn, editBtn, deleteBtn,
                 statsBtn, showTreeBtn, generateBtn);
         buttons.setPadding(new Insets(10));
 
@@ -548,6 +559,83 @@ public class MainView {
     }
 
     // ============================================================
+    //              ЭКСПОРТ / ИМПОРТ (JSON и бинарный формат)
+    // ============================================================
+
+    private void onExport() {
+        FileChooser fc = new FileChooser();
+        fc.setTitle("Экспорт каталога");
+        fc.setInitialFileName("catalog");
+        for (Serializer<CatalogData> s : Serializers.all()) {
+            fc.getExtensionFilters().add(
+                    new FileChooser.ExtensionFilter(s.description(), "*." + s.extension()));
+        }
+        File file = fc.showSaveDialog(stage);
+        if (file == null) return;
+
+        // Формат: по расширению, которое ввёл пользователь, иначе по выбранному фильтру
+        Serializer<CatalogData> serializer = Serializers.byFileName(file.getName());
+        Path target = file.toPath();
+        if (serializer == null) {
+            FileChooser.ExtensionFilter filter = fc.getSelectedExtensionFilter();
+            String ext = filter == null ? "json" : filter.getExtensions().get(0).substring(2);
+            serializer = Serializers.byExtension(ext);
+            target = target.resolveSibling(file.getName() + "." + serializer.extension());
+        }
+
+        // Снимок делаем в GUI-потоке, запись на диск — в фоне
+        List<Product> snapshot = new ArrayList<>(tree.size());
+        tree.forEach(snapshot::add);
+
+        Path finalTarget = target;
+        runTask(new ExportTask(snapshot, serializer, target), "Экспорт: " + target.getFileName(), false,
+                saved -> setStatus("Экспортировано в " + finalTarget.getFileName() + ": " + saved + " товаров"));
+    }
+
+    private void onImport() {
+        FileChooser fc = new FileChooser();
+        fc.setTitle("Импорт каталога");
+        fc.getExtensionFilters().add(new FileChooser.ExtensionFilter(
+                "Все поддерживаемые форматы", "*.json", "*.bin"));
+        for (Serializer<CatalogData> s : Serializers.all()) {
+            fc.getExtensionFilters().add(
+                    new FileChooser.ExtensionFilter(s.description(), "*." + s.extension()));
+        }
+        File file = fc.showOpenDialog(stage);
+        if (file == null) return;
+
+        Serializer<CatalogData> serializer = Serializers.byFileName(file.getName());
+        if (serializer == null) {
+            showError("Неизвестный формат",
+                    "Не удалось определить формат по имени файла «" + file.getName()
+                            + "». Поддерживаются файлы .json и .bin.");
+            return;
+        }
+        // После успеха: дерево подменяется, таблица и окно визуализации обновляются (applyLoadResult)
+        runTask(new ImportTask(file.toPath(), serializer), "Импорт: " + file.getName(), true,
+                result -> applyLoadResult(result, file.getName()));
+    }
+
+    /** Ошибки формата показываем с понятным заголовком по коду, остальные — как раньше. */
+    private void showFailure(Throwable ex) {
+        if (ex instanceof SerializationException se) {
+            String title = switch (se.getErrorCode()) {
+                case IO_ERROR -> "Ошибка файла";
+                case EMPTY_FILE -> "Пустой файл";
+                case BAD_FORMAT -> "Неверный формат файла";
+                case CORRUPTED_FILE -> "Файл повреждён";
+                case UNSUPPORTED_VERSION -> "Неподдерживаемая версия файла";
+                case BAD_FIELD -> "Недопустимые данные в файле";
+            };
+            showError(title, se.getMessage());
+            setStatus("Ошибка [" + se.getErrorCode() + "]: данные не изменены");
+            return;
+        }
+        showError("Ошибка", ex == null ? "Неизвестная ошибка"
+                : (ex.getMessage() != null ? ex.getMessage() : ex.toString()));
+    }
+
+    // ============================================================
     //                    ФОНОВЫЕ ЗАДАЧИ
     // ============================================================
 
@@ -596,9 +684,7 @@ public class MainView {
 
         task.setOnFailed(e -> {
             dialog.close();
-            Throwable ex = task.getException();
-            showError("Ошибка", ex == null ? "Неизвестная ошибка"
-                    : (ex.getMessage() != null ? ex.getMessage() : ex.toString()));
+            showFailure(task.getException());
         });
 
         task.setOnCancelled(e -> {
