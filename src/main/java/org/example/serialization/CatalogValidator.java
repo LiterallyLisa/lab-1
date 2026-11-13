@@ -5,11 +5,6 @@ import org.example.serialization.SerializationException.ErrorCode;
 import java.time.DateTimeException;
 import java.time.LocalDate;
 
-/**
- * Проверка записей каталога. Вызывается и перед записью, и после чтения, поэтому в приложение
- * (и в файл) не попадает товар с пустым названием, отрицательной ценой и т. п.
- * Нумерация записей в сообщениях начинается с 1.
- */
 public final class CatalogValidator {
 
     private CatalogValidator() {

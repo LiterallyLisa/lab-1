@@ -1,9 +1,5 @@
 package org.example.serialization;
 
-/**
- * Ошибка сохранения или загрузки файла. Код ошибки нужен для программной обработки (GUI, тесты),
- * сообщение — для человека. Тот же приём, что и в CsvLoadException из лабораторной № 1.
- */
 public class SerializationException extends Exception {
 
     public enum ErrorCode {
